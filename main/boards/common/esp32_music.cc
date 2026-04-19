@@ -633,9 +633,12 @@ void Esp32Music::DownloadAudioStream(const std::string& music_url) {
     ESP_LOGI(TAG, "Started downloading audio stream, status: %d", status_code);
     
     // 分块读取音频数据
-    const size_t chunk_size = 4096;  // 4KB每块
+    const size_t chunk_size = 16384;  // 增大读取块到 16KB，减少系统调用开销
     char buffer[chunk_size];
     size_t total_downloaded = 0;
+    
+    // 设置 HTTP 超时和重连机制
+    http->SetHeader("Connection", "keep-alive");
     
     while (is_downloading_ && is_playing_) {
         int bytes_read = http->Read(buffer, chunk_size);
