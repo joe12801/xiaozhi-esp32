@@ -919,74 +919,36 @@ void Esp32Music::PlayAudioStream() {
             int frame_duration_ms = (mp3_frame_info_.outputSamps * 1000) / 
                                   (mp3_frame_info_.samprate * mp3_frame_info_.nChans);
             
-            // 更新当前播放时间
-            current_play_time_ms_ += frame_duration_ms;
-            
-            ESP_LOGD(TAG, "Frame %d: time=%lldms, duration=%dms, rate=%d, ch=%d", 
-                    total_frames_decoded_, current_play_time_ms_, frame_duration_ms,
-                    mp3_frame_info_.samprate, mp3_frame_info_.nChans);
-            
-            // 更新歌词显示
-            int buffer_latency_ms = 600; // 实测调整值
-            UpdateLyricDisplay(current_play_time_ms_ + buffer_latency_ms);
-            
-            // 将PCM数据发送到Application的音频解码队列
-            if (mp3_frame_info_.outputSamps > 0) {
-                int16_t* final_pcm_data = pcm_buffer;
-                int final_sample_count = mp3_frame_info_.outputSamps;
-                std::vector<int16_t> mono_buffer;
+                // 更新当前播放时间
+                current_play_time_ms_ += frame_duration_ms;
                 
-                // 如果是双通道，转换为单通道混合
-                if (mp3_frame_info_.nChans == 2) {
-                    // 双通道转单通道：将左右声道混合
-                    int stereo_samples = mp3_frame_info_.outputSamps;  // 包含左右声道的总样本数
-                    int mono_samples = stereo_samples / 2;  // 实际的单声道样本数
+                // 更新歌词显示
+                int buffer_latency_ms = 600; // 实测调整值
+                UpdateLyricDisplay(current_play_time_ms_ + buffer_latency_ms);
+                
+                // 将PCM数据发送到Application的音频解码队列
+                if (mp3_frame_info_.outputSamps > 0) {
+                    int16_t* final_pcm_data = pcm_buffer;
+                    int final_sample_count = mp3_frame_info_.outputSamps;
                     
-                    mono_buffer.resize(mono_samples);
+                    // 确保FFT缓冲区足够大且已初始化 (FIX: 防止堆溢出)
+                    static size_t current_fft_buffer_size = 0;
+                    size_t needed_fft_size = final_sample_count * sizeof(int16_t);
                     
-                    for (int i = 0; i < mono_samples; ++i) {
-                        // 混合左右声道 (L + R) / 2
-                        int left = pcm_buffer[i * 2];      // 左声道
-                        int right = pcm_buffer[i * 2 + 1]; // 右声道
-                        mono_buffer[i] = (int16_t)((left + right) / 2);
+                    if (final_pcm_data_fft == nullptr || needed_fft_size > current_fft_buffer_size) {
+                        if (final_pcm_data_fft != nullptr) {
+                            heap_caps_free(final_pcm_data_fft);
+                        }
+                        final_pcm_data_fft = (int16_t*)heap_caps_malloc(
+                            needed_fft_size,
+                            MALLOC_CAP_SPIRAM
+                        );
+                        current_fft_buffer_size = needed_fft_size;
                     }
                     
-                    final_pcm_data = mono_buffer.data();
-                    final_sample_count = mono_samples;
-
-                    ESP_LOGD(TAG, "Converted stereo to mono: %d -> %d samples", 
-                            stereo_samples, mono_samples);
-                } else if (mp3_frame_info_.nChans == 1) {
-                    // 已经是单声道，无需转换
-                    ESP_LOGD(TAG, "Already mono audio: %d samples", final_sample_count);
-                } else {
-                    ESP_LOGW(TAG, "Unsupported channel count: %d, treating as mono", 
-                            mp3_frame_info_.nChans);
-                }
-                
-                // 创建AudioStreamPacket
-                AudioStreamPacket packet;
-                packet.sample_rate = mp3_frame_info_.samprate;
-                packet.frame_duration = 60;  // 使用Application默认的帧时长
-                packet.timestamp = 0;
-                
-                // 将int16_t PCM数据转换为uint8_t字节数组
-                size_t pcm_size_bytes = final_sample_count * sizeof(int16_t);
-                packet.payload.resize(pcm_size_bytes);
-                memcpy(packet.payload.data(), final_pcm_data, pcm_size_bytes);
-
-                if (final_pcm_data_fft == nullptr) {
-                    final_pcm_data_fft = (int16_t*)heap_caps_malloc(
-                        final_sample_count * sizeof(int16_t),
-                        MALLOC_CAP_SPIRAM
-                    );
-                }
-                
-                memcpy(
-                    final_pcm_data_fft,
-                    final_pcm_data,
-                    final_sample_count * sizeof(int16_t)
-                );
+                    if (final_pcm_data_fft != nullptr) {
+                        memcpy(final_pcm_data_fft, final_pcm_data, needed_fft_size);
+                    }
                 
                 ESP_LOGD(TAG, "Sending %d PCM samples (%d bytes, rate=%d, channels=%d->1) to Application", 
                         final_sample_count, pcm_size_bytes, mp3_frame_info_.samprate, mp3_frame_info_.nChans);
