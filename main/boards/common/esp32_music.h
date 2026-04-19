@@ -72,7 +72,7 @@ private:
     std::mutex buffer_mutex_;
     std::condition_variable buffer_cv_;
     size_t buffer_size_;
-    static constexpr size_t MAX_BUFFER_SIZE = 512 * 1024;  // 增加到 512KB 缓冲区，充分利用 S3 的 PSRAM
+    static constexpr size_t MAX_BUFFER_SIZE = 4 * 1024 * 1024;  // 提升到 4MB 缓冲区，针对 N16R8 优化
     static constexpr size_t MIN_BUFFER_SIZE = 128 * 1024;  // 增加到 128KB 启动缓冲，防止卡顿
     
     // MP3解码器相关
